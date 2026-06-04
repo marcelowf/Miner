@@ -1,0 +1,26 @@
+# Copy to config.toml and edit.
+
+[rpc]
+# For regtest, the default RPC port is 18443; testnet 18332; mainnet 8332.
+url = "http://127.0.0.1:18443"
+user = "user"
+password = "pass"
+
+[mining]
+# Hex-encoded scriptPubKey for your coinbase payout.
+# Generate on the node you're mining against:
+#   ADDR=$(bitcoin-cli -regtest getnewaddress "" "bech32")
+#   bitcoin-cli -regtest getaddressinfo "$ADDR" | jq -r .scriptPubKey
+# Example below is a placeholder — replace it.
+payout_script_hex = "0014000000000000000000000000000000000000dead"
+
+# 0 = use all logical cores
+threads = 0
+
+# Seconds between template refreshes. Lower means less wasted work after a
+# competing block, higher means less RPC load. 30 is fine for solo.
+refresh_seconds = 30
+
+# Free-form bytes appended to the coinbase scriptSig (visible in block explorers).
+# Keep it short — total scriptSig must stay <= 100 bytes per consensus.
+coinbase_tag = "/btc-lottery-miner/"
