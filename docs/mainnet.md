@@ -429,9 +429,63 @@ O nó retoma e sincroniza os blocos novos automaticamente (apenas os que faltam 
 
 ---
 
-## Segurança
+## Segurança e privacidade
 
-- `config.toml` está no `.gitignore` — nunca sobe para o repositório
-- O scriptPubKey é público (derivado do endereço) — não expõe chaves privadas
-- As chaves privadas ficam exclusivamente no Sparrow — nunca no nó
-- Se o WD Elements for perdido ou formatado, apenas a blockchain é perdida (re-sincronizável em ~27h com SSD) — os fundos ficam seguros no Sparrow
+É importante separar **segurança** (risco de perder fundos) de **privacidade** (quem sabe o que você está fazendo).
+
+### Segurança — setup atual
+
+| Ponto | Status | Detalhe |
+|---|---|---|
+| RPC porta 8332 | ✅ seguro | `rpcbind=127.0.0.1` — só acessível localmente |
+| Chaves privadas | ✅ seguro | Apenas no Sparrow, nunca no nó |
+| `config.toml` | ✅ seguro | No `.gitignore`, nunca sobe para o GitHub |
+| Saldo em risco | ✅ zero | Ninguém pode mover BTC sem as chaves do Sparrow |
+| Blockchain perdida | ✅ recuperável | Re-sincronizável em ~27h com SSD — fundos não são afetados |
+
+### Privacidade — o que vaza
+
+| O que | Para quem |
+|---|---|
+| Seu IP | ~8 peers Bitcoin que você conecta |
+| Que você roda um nó Bitcoin | Seu provedor de internet (ISP) |
+| Que você minerou um bloco (se acontecer) | Rede inteira — o bloco é público e permanente |
+
+### Tor — privacidade extra (opcional)
+
+O Bitcoin Core suporta Tor nativamente. Ele esconde seu IP dos peers roteando as conexões P2P pela rede Tor.
+
+**Download:** `torproject.org` → Tor Browser (Windows) — software legítimo e legal no Brasil.
+
+Após instalar e abrir o Tor Browser (cria proxy local na porta 9150), adicione ao `F:\bitcoin-data\bitcoin.conf`:
+
+```
+proxy=127.0.0.1:9150
+onlynet=onion
+```
+
+> Para este projeto educacional, Tor é opcional. O risco sem ele é baixo — seu IP fica visível apenas para ~8 peers, não para o mundo inteiro.
+
+### Se você encontrar um bloco
+
+- O endereço `bc1q...` que recebe a recompensa fica **permanentemente público** na blockchain
+- A tag `/btc-lottery-miner/` no coinbase identifica o software publicamente
+- Use o endereço do Sparrow apenas para receber recompensas de mineração — não o reutilize para outras transações
+
+### Imposto (Brasil)
+
+A Receita Federal trata mineração como **renda** no momento do recebimento:
+- Recompensa atual: ~3 BTC em fees por bloco (~R$ 1,5 milhão ao câmbio de 2026)
+- Alíquota IR progressiva: até 27,5%
+- A RFB monitora movimentações crypto desde 2019 via exchanges regulamentadas
+
+> **Consulte um contador especializado em crypto antes de movimentar qualquer recompensa minerada.**
+
+### Verificar saldo no Sparrow
+
+O saldo aparece diretamente na aba **Transactions** do Sparrow. Via terminal:
+
+```powershell
+$env:PATH = "$env:USERPROFILE\bin;$env:PATH"
+bitcoin-cli -datadir=F:\bitcoin-data getreceivedbyaddress "bc1q..." 0
+```
