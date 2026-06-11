@@ -1,5 +1,4 @@
 [2026-06-09T11:55:00Z INFO  btc_lottery_miner::mining]    9.26 MH/s | hashes=268390105088
-[2026-06-09T14:35:00Z INFO  btc_lottery_miner::mining]    8.85 MH/s | hashes=353692680192
 [2026-06-09T14:45:00Z INFO  btc_lottery_miner::mining]    8.39 MH/s | hashes=358932021248
 [2026-06-09T19:10:00Z INFO  btc_lottery_miner::mining]    8.72 MH/s | hashes=500212039680
 [2026-06-09T20:45:00Z INFO  btc_lottery_miner::mining]    9.13 MH/s | hashes=550990249984
