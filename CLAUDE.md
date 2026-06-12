@@ -2,90 +2,102 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project overview
+## What this is
 
-`btc-lottery-miner` — a solo CPU Bitcoin miner ("lottery" miner) written in Rust. It connects to a
-Bitcoin Core node via JSON-RPC, fetches a block template (`getblocktemplate`), builds an 80-byte
-block header plus a coinbase transaction, brute-forces nonces with SHA256d, and submits any valid
-block via `submitblock`. It's an educational/lottery project — see `README.md` for the (very long)
-odds of finding a block on mainnet.
+A solo Bitcoin "lottery" miner — connects to a Bitcoin Core node via JSON-RPC, builds an 80-byte
+block header, and searches for a nonce where `SHA256(SHA256(header)) < target`. Two independent
+implementations live side by side under [Miner/](Miner/) (the git repo root is `Miner/`, not
+`c:\Develop`):
 
-## Build & run commands
+- [Miner/cpu/](Miner/cpu/) — CPU miner (`btc-lottery-miner`), multi-threaded. **Stable; do not change** unless the task is about the CPU miner.
+- [Miner/gpu/](Miner/gpu/) — CUDA GPU miner (`btc-lottery-miner-gpu`), targets a GTX 1650. Newer; the active work (see [todo.md](todo.md)).
 
-- Release build: `cargo build --release` → binary at `target\release\btc-lottery-miner.exe`
-- Debug build: `cargo build`
-- Run: `.\target\release\btc-lottery-miner.exe --config config.toml`
-  (or `cargo run --release -- --config config.toml`)
-- Log level override: `--log debug` (`error|warn|info|debug|trace`)
-- Lint/typecheck: `cargo check`, `cargo clippy`
-- There is no test suite in this repo (no `#[cfg(test)]` modules).
+Both are Rust crates with their own `Cargo.toml`; there is **no workspace** at the `Miner/` root.
+Docs/prose are in Portuguese; code and identifiers are in English.
 
-## Configuration
+## Commands
 
-- `config.toml` is gitignored (contains real RPC credentials and payout script). Copy from
-  `config.example.toml` to create it.
-- `[rpc]`: `url`/`user`/`password` for the Bitcoin Core JSON-RPC endpoint. Default ports:
-  regtest `18443`, testnet4 `48332`, mainnet `8332`.
-- `[mining]`:
-  - `payout_script_hex` — the coinbase output **scriptPubKey**, not a bech32 address. Derive with
-    `bitcoin-cli getaddressinfo <addr> | jq -r .scriptPubKey`.
-  - `threads` — `0` = use all logical cores (`Config::resolved_threads`).
-  - `refresh_seconds` — how often the main loop polls `getblocktemplate` for new work.
-  - `coinbase_tag` — free-form bytes appended to the coinbase scriptSig; total scriptSig must stay
-    `<= 100` bytes per consensus (enforced in `coinbase.rs` by clamping tag length).
+Build/test/run per crate — `cd` into `Miner/cpu` or `Miner/gpu` first (no root manifest to build
+the whole repo at once, despite what `docs/setup.md` §5 implies):
+
+```powershell
+cd Miner/gpu                       # or Miner/cpu
+cargo build --release              # binary: target\release\btc-lottery-miner-gpu.exe
+cargo test                         # SHA-256 midstate tests live in gpu/src/sha256_host.rs
+cargo test midstate                # run a single test by name substring
+```
+
+GPU-only:
+
+```powershell
+.\target\release\btc-lottery-miner-gpu.exe --list-devices         # enumerate CUDA GPUs, no node needed
+.\target\release\btc-lottery-miner-gpu.exe --config config.toml              # mine
+.\target\release\btc-lottery-miner-gpu.exe --config config.toml --benchmark  # measure raw hashrate, never submits
+```
+
+Both binaries take `--config <path>` (default `config.toml`) and `--log <error|warn|info|debug|trace>`.
+Copy `config.example.toml` → `config.toml` in the crate dir before running. The GPU `--benchmark`
+flag zeroes the target so the kernel reports no hits — measures pure throughput against any node,
+including a throwaway `regtest` node.
+
+Toolchain install (Windows, from scratch) is in [Miner/docs/setup.md](Miner/docs/setup.md): MSVC
+Build Tools (linker), rustup, Bitcoin Core. The GPU crate additionally needs the **CUDA Toolkit
+12.x** (`nvcc` + `CUDA_PATH` on PATH) — `cudarc` detects the version at build time via the
+`cuda-version-from-build-system` feature.
 
 ## Architecture
 
-Module flow: `main.rs` → `config::Config::load` → `mining::run`.
+Both miners share the same pipeline and nearly identical helper modules (`rpc.rs`, `template.rs`,
+`coinbase.rs`, `merkle.rs`, `config.rs`). The GPU crate's copies are forks of the CPU ones — when
+fixing a bug in shared logic, check whether the twin needs the same fix.
 
-- **`rpc.rs`** — `BitcoinRpcClient`: thin JSON-RPC wrapper (HTTP basic auth via `ureq`) exposing
-  `get_block_template`, `submit_block`, `get_blockchain_info`.
-- **`template.rs`** — `BlockTemplate::from_json`: parses a `getblocktemplate` response into typed
-  fields (version, `previous_blockhash`, `bits`, `target`, `coinbase_value`,
-  `default_witness_commitment`, and the list of `TemplateTx` with raw tx bytes + txids).
-- **`coinbase.rs`** — `build_coinbase`: constructs the coinbase transaction (BIP34 height push +
-  per-thread extranonce push + `coinbase_tag`, payout output, optional witness-commitment output).
-  Returns both a witness-stripped serialization (used for the txid that feeds the merkle root) and
-  a full serialization (used in the assembled block). `push_bip34_height` is consensus-critical:
-  heights 1–16 must be encoded as a single `OP_1`..`OP_16` byte (`0x51`-`0x60`), not a CScriptNum —
-  see `docs/regtest.md` for the history of the `bad-cb-height` bug this fixes.
-- **`merkle.rs`** — `sha256d` / `sha256d_pair` / `merkle_root`, plus `reverse` (32-byte order flip).
-  Bitcoin RPC returns hashes in display (reversed) byte order; header hashing needs internal
-  (protocol) order. `reverse()` converts between the two and is used throughout — see "Byte-order
-  conventions" below.
-- **`mining.rs`** — the core loop:
-  - `MiningJob` — immutable snapshot of everything needed to mine one template, built once per
-    refresh via `MiningJob::from_template`.
-  - `MiningState` — shared across worker threads: the current `MiningJob` behind a tiny inline
-    `arc_swap::ArcSwap` (a `Mutex<Arc<T>>`, not the `arc-swap` crate), an atomic stop flag, and a
-    global hash counter.
-  - `run()` — connects via RPC, builds the initial job, installs a Ctrl+C handler, spawns one
-    worker thread per `resolved_threads()`, then loops: every 500ms check the stop flag, every 5s
-    log the hashrate, every `refresh_seconds/6` poll `getblocktemplate` and swap in a new
-    `MiningJob` if the height changed or `curtime` advanced.
-  - `worker_loop()` — each thread partitions the search space via
-    `extranonce = (thread_id << 32) | local_counter`. Changing the extranonce changes the coinbase
-    txid → merkle root → header, giving each thread an independent ~2^32 nonce range. Per nonce:
-    fill in the header, `sha256d`, compare against the target with `is_below_target` (walks the
-    hash bytes in reverse order against the big-endian target, avoiding an allocation). On a hit,
-    assemble the full block hex (`assemble_block_hex`) and call `submit_block`. Every 65536
-    iterations it checks whether the shared job pointer changed (new template arrived) and breaks
-    out of the inner loop to pick up fresh work.
-  - Deliberately no SIMD / midstate caching — optimized for readability (see README "O hot loop").
+The core loop (`mining.rs` in each crate):
 
-## Byte-order conventions
+1. `rpc.rs` calls `getblocktemplate`; `template.rs` parses it into a `BlockTemplate`.
+2. `MiningJob::from_template` converts to header-ready form — note the **byte-order conversions**:
+   `previous_blockhash` and txids are reversed to internal order; `bits` is reversed because the
+   template gives big-endian but the header field is little-endian; `target` is kept big-endian
+   (display order) for comparison.
+3. Per extranonce: `coinbase.rs` builds the coinbase tx (BIP34 height + tag + extranonce in
+   scriptSig, witness commitment if present), `merkle.rs` computes the merkle root over
+   `[coinbase_txid, ...other_txids]`, and the 80-byte header skeleton is assembled (bytes 76..80 =
+   nonce, left for the search to vary).
+4. Search the 2³² nonce space. On exhaustion, increment extranonce (changes the coinbase → new
+   merkle root → fresh search space).
+5. On a hit, **re-verify the hash on the host** before trusting it, then `assemble_block_hex` and
+   `submitblock`.
+6. The template is refreshed every `refresh_seconds / 6`; a new height or newer `curtime` swaps the
+   job and restarts the search (mining on a stale template = wasted work).
 
-Bitcoin RPC fields (`previousblockhash`, `bits`, `target`, `txid`) are given in **display order**
-(reversed from how the protocol hashes them). Header fields and hash comparisons need **internal
-(protocol) order**. `reverse()` converts between the two, and field names use an `_internal` suffix
-(e.g. `prev_hash_internal`, `other_txids_internal`) to track which order a value is in. When adding
-new template/header fields, follow this naming convention to avoid mixing the two orders.
+`is_below_target` compares the little-endian internal hash against the big-endian target by walking
+`hash[31-i]` vs `target[i]` — get this wrong and valid blocks are missed or invalid ones submitted.
 
-## Docs
+**CPU search-space partitioning:** N worker threads, each owns `extranonce = (thread_id << 32) |
+local_counter`, so threads never collide. Template swaps are detected via an `Arc<MiningJob>`
+pointer comparison (`ArcSwap`, a tiny inline shim, not the crate).
 
-`docs/` contains step-by-step Windows setup/run logs per network (in Portuguese):
-- `setup.md` — toolchain + Bitcoin Core install on Windows
-- `regtest.md` — local regtest walkthrough, including the BIP34 height-encoding bug fix
-- `testnet4.md` — testnet4 sync + run log
-- `mainnet.md` — mainnet sync, storage, and security/privacy notes
-- `banchmarks/PC1/` — hashrate benchmark logs for a reference machine (i7-10700, ~9 MH/s)
+**GPU pipeline** ([Miner/gpu/](Miner/gpu/)):
+
+- `sha256_host.rs` computes the SHA-256 **midstate** after the header's first 64 bytes. Only the
+  last 16 bytes change with the nonce, so this is computed once per (job, extranonce) on the host.
+- `kernels/sha256d.cu` — each GPU thread resumes from the midstate, finishes the first SHA-256,
+  does the second, and compares to the target. Millions of nonces per launch.
+- `gpu.rs` — **all `cudarc`-specific API usage is isolated here on purpose.** Compiles the `.cu` to
+  PTX at runtime via NVRTC, keeps reusable device buffers, dispatches batches, reads back hits. If
+  a `cudarc` version bump breaks the build, this is the only file to touch (`CudaDevice::new`,
+  `load_ptx`, `htod_sync_copy_into`, `dtoh_sync_copy`, `get_func`, `LaunchConfig`, `func.launch`).
+  The target GPU arch is the `ARCH` const (`sm_75` for the GTX 1650 / Turing) — change it for other
+  cards.
+
+## Conventions and gotchas
+
+- `payout_script_hex` in config is the **scriptPubKey hex**, not a bech32 address. Get it via
+  `bitcoin-cli getaddressinfo $(bitcoin-cli getnewaddress) | jq -r .scriptPubKey`.
+- Validate correctness on **regtest** (finds a block in milliseconds, `submitblock OK`) before
+  pointing at testnet4/mainnet. Node setup per network: [Miner/docs/nets/](Miner/docs/nets/).
+- Mainnet requires a fully synced node; mining on a desynced node mines a dead fork.
+- Benchmark results are recorded in [Miner/docs/banchmarks/](Miner/docs/banchmarks/) (note the
+  misspelled dir) and [Miner/docs/hashrates.md](Miner/docs/hashrates.md). The GPU and CPU miners
+  print the same `MH/s | hashes=` stats line every 5s for apples-to-apples comparison.
+- Release profile is aggressive (`lto = "fat"`, `codegen-units = 1`, `panic = "abort"`) — clean
+  release builds are slow; iterate with debug builds.

@@ -1,0 +1,38 @@
+# Copy to config.toml and edit.
+
+[rpc]
+# For regtest, the default RPC port is 18443; testnet4 48332; mainnet 8332.
+url = "http://127.0.0.1:18443"
+user = "user"
+password = "pass"
+
+[mining]
+# Hex-encoded scriptPubKey for your coinbase payout.
+# Generate on the node you're mining against:
+#   ADDR=$(bitcoin-cli -regtest getnewaddress "" "bech32")
+#   bitcoin-cli -regtest getaddressinfo "$ADDR" | jq -r .scriptPubKey
+# Example below is a placeholder — replace it.
+payout_script_hex = "0014000000000000000000000000000000000000dead"
+
+# Seconds between template refreshes. Lower means less wasted work after a
+# competing block, higher means less RPC load. 30 is fine for solo.
+refresh_seconds = 30
+
+# Free-form bytes appended to the coinbase scriptSig (visible in block explorers).
+# Keep it short — total scriptSig must stay <= 100 bytes per consensus.
+coinbase_tag = "/btc-lottery-miner-gpu/"
+
+[gpu]
+# Which CUDA device (0 = first GPU). See: btc-lottery-miner-gpu.exe --list-devices
+device_index = 0
+
+# CUDA threads per block. 256 is a safe default.
+threads_per_block = 256
+
+# CUDA blocks per launch ("intensity"). Raise until the GPU saturates without freezing the
+# desktop; lower it if the screen gets laggy. Total nonces per launch =
+# blocks * threads_per_block * nonces_per_thread.
+blocks = 4096
+
+# Nonces hashed per thread per launch. Bigger = fewer launches, less host overhead.
+nonces_per_thread = 64

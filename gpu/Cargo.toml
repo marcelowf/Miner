@@ -1,0 +1,42 @@
+[package]
+name = "btc-lottery-miner-gpu"
+version = "0.1.0"
+edition = "2021"
+authors = ["Marcelo Wzorek Filho"]
+description = "Solo GPU Bitcoin miner (CUDA) — lottery edition"
+license = "MIT"
+
+[[bin]]
+name = "btc-lottery-miner-gpu"
+path = "src/main.rs"
+
+[dependencies]
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2", features = ["json"] }
+hex = "0.4"
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+base64 = "0.22"
+ctrlc = "3"
+
+# CUDA bindings. `cuda-version-from-build-system` detects the installed CUDA Toolkit version at
+# build time (needs nvcc/CUDA_PATH on PATH). If the build complains about the CUDA version, see
+# the "Solução de problemas de build" section in README.md.
+cudarc = { version = "0.12", default-features = false, features = [
+    "std",
+    "driver",
+    "nvrtc",
+    "cuda-version-from-build-system",
+] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
