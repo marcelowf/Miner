@@ -39,4 +39,8 @@ threads = 0  # auto
 [2026-06-10T19:05:00Z INFO  btc_lottery_miner::mining]    9.11 MH/s | hashes=1266811535360
 [2026-06-11T01:45:00Z INFO  btc_lottery_miner::mining]    9.03 MH/s | hashes=1480832188416
 [2026-06-11T14:50:00Z INFO  btc_lottery_miner::mining]    9.16 MH/s | hashes=1900459786240
+[2026-06-11T20:55:00Z INFO  btc_lottery_miner::mining]    9.11 MH/s | hashes=2095137882112
+[2026-06-12T20:50:00Z INFO  btc_lottery_miner::mining]    9.09 MH/s | hashes=2862877900800
+[2026-06-14T01:30:00Z INFO  btc_lottery_miner::mining]    8.21 MH/s | hashes=3783954333696
+[2026-06-14T17:35:00Z INFO  btc_lottery_miner::mining]    9.07 MH/s | hashes=4300405407744
 ```
